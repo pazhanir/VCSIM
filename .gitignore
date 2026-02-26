@@ -1,0 +1,17 @@
+# Site24x7 poller (not part of this repo)
+Site24x7OnPremisePoller/
+Site24x7OnPremisePoller_64bit.bin
+vmware/
+
+# macOS
+.DS_Store
+
+# Go build artifacts
+custom-vcsim/vcsim
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

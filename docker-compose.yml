@@ -1,0 +1,24 @@
+services:
+  vcsim:
+    image: custom-vcsim:update
+    container_name: vcsim-demo
+    ports:
+      - "443:443"     # vSphere SOAP API (standard vCenter port)
+      - "8990:8990"   # Scenario management REST API
+    command: >
+      -l :443
+      -scenario-addr :8990
+      -username administrator@vsphere.local
+      -password Site24x7!Demo
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sk", "https://localhost:443/about"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    driver: bridge

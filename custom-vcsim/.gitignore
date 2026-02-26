@@ -1,0 +1,15 @@
+# Binaries
+vcsim-demo
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go (vendor/ is committed because it contains modified govmomi source)
