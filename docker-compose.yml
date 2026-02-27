@@ -5,11 +5,35 @@ services:
     ports:
       - "443:443"     # vSphere SOAP API (standard vCenter port)
       - "8990:8990"   # Scenario management REST API
+    # ──────────────────────────────────────────────────────────
+    # Inventory scaling flags (optional):
+    #   -dc       Number of datacenters          (default: 0 = full 5-DC layout)
+    #   -cluster  Clusters per datacenter         (default: 3)
+    #   -host     Hosts per cluster               (default: 6)
+    #   -vm       VMs per cluster                 (default: 100)
+    #   -ds       Datastores per datacenter       (default: 3)
+    #   -dvs      DVSwitches per datacenter       (default: 1)
+    #
+    # Examples:
+    #   Default 5-DC enterprise layout (~4000 objects):
+    #     Omit -dc flag or set -dc 0
+    #
+    #   Small demo (1 DC, 2 clusters, 3 hosts, 50 VMs):
+    #     -dc 1 -cluster 2 -host 3 -vm 50
+    #
+    #   Large scale (3 DCs, 5 clusters, 8 hosts, 500 VMs):
+    #     -dc 3 -cluster 5 -host 8 -vm 500 -ds 5 -dvs 2
+    # ──────────────────────────────────────────────────────────
     command: >
       -l :443
       -scenario-addr :8990
       -username administrator@vsphere.local
       -password Site24x7!Demo
+      -dc 2
+      -cluster 4
+      -host 6
+      -vm 400
+      -ds 3
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sk", "https://localhost:443/about"]

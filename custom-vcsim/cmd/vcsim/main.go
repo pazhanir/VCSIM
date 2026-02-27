@@ -46,6 +46,16 @@ func main() {
 	username := flag.String("username", "administrator@vsphere.local", "vSphere username")
 	password := flag.String("password", "Site24x7!Demo", "vSphere password")
 	skipInventory := flag.Bool("skip-inventory", false, "Skip custom inventory creation (use default vcsim inventory)")
+
+	// Inventory scaling flags — when any of these are set, use simple flat
+	// scaling mode instead of the hardcoded 5-DC layout.
+	invDC := flag.Int("dc", 0, "Number of datacenters (0 = use default 5-DC layout)")
+	invCluster := flag.Int("cluster", 3, "Clusters per datacenter")
+	invHost := flag.Int("host", 6, "Hosts per cluster")
+	invVM := flag.Int("vm", 100, "VMs per cluster (distributed across 3 resource pools)")
+	invDS := flag.Int("ds", 3, "Datastores per datacenter")
+	invDVS := flag.Int("dvs", 1, "DVSwitches per datacenter")
+
 	flag.Parse()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -57,6 +67,12 @@ func main() {
 	log.Printf(" vSphere API:         https://0.0.0.0%s", *vsphereAddr)
 	log.Printf(" Scenario Controller: http://0.0.0.0%s", *scenarioAddr)
 	log.Printf(" Username:            %s", *username)
+	if *invDC > 0 {
+		log.Printf(" Inventory Mode:      Simple (dc=%d cluster=%d host=%d vm=%d ds=%d dvs=%d)",
+			*invDC, *invCluster, *invHost, *invVM, *invDS, *invDVS)
+	} else {
+		log.Printf(" Inventory Mode:      Default (5-DC enterprise layout)")
+	}
 	log.Println("==============================================")
 
 	// Create the VPX model (vCenter simulator)
@@ -123,8 +139,21 @@ func main() {
 
 	// Build the custom inventory if not skipped
 	if !*skipInventory {
-		log.Println("[inventory] Building large-scale inventory (~4000 objects)...")
-		if err := buildCustomInventory(ctx, server.URL); err != nil {
+		var cfg inventory.Config
+		if *invDC > 0 {
+			cfg = inventory.SimpleConfig(*invDC, *invCluster, *invHost, *invVM, *invDS, *invDVS)
+			// Count total objects for log
+			totalHosts := *invDC * *invCluster * *invHost
+			totalVMs := *invDC * *invCluster * *invVM
+			log.Printf("[inventory] Building custom inventory: %d DCs, %d clusters/DC, %d hosts/cluster, %d VMs/cluster",
+				*invDC, *invCluster, *invHost, *invVM)
+			log.Printf("[inventory] Totals: %d hosts, %d VMs, %d datastores, %d DVSwitches",
+				totalHosts, totalVMs, *invDC**invDS, *invDC**invDVS)
+		} else {
+			cfg = inventory.DefaultConfig()
+			log.Println("[inventory] Building large-scale inventory (default 5-DC layout, ~4000 objects)...")
+		}
+		if err := buildCustomInventory(ctx, server.URL, cfg); err != nil {
 			log.Printf("[inventory] WARNING: Custom inventory build failed: %v", err)
 			log.Println("[inventory] Continuing with default vcsim inventory")
 		} else {
@@ -178,8 +207,7 @@ func main() {
 	log.Println("Shutting down...")
 }
 
-func buildCustomInventory(ctx context.Context, serverURL *url.URL) error {
-	cfg := inventory.DefaultConfig()
+func buildCustomInventory(ctx context.Context, serverURL *url.URL, cfg inventory.Config) error {
 	builder, err := inventory.NewBuilder(serverURL, cfg)
 	if err != nil {
 		return fmt.Errorf("create builder: %w", err)

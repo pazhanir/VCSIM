@@ -71,6 +71,107 @@ func DefaultConfig() Config {
 	}
 }
 
+// SimpleConfig generates a flat-scaling inventory layout from numeric parameters.
+// Each datacenter gets identical structure: N clusters, M hosts per cluster,
+// V VMs per cluster (distributed across 3 resource pools), D datastores, S DVSwitches.
+func SimpleConfig(dcs, clustersPerDC, hostsPerCluster, vmsPerCluster, dsPerDC, dvsPerDC int) Config {
+	// Enforce minimums
+	if dcs < 1 {
+		dcs = 1
+	}
+	if clustersPerDC < 1 {
+		clustersPerDC = 1
+	}
+	if hostsPerCluster < 1 {
+		hostsPerCluster = 1
+	}
+	if vmsPerCluster < 0 {
+		vmsPerCluster = 0
+	}
+	if dsPerDC < 1 {
+		dsPerDC = 1
+	}
+	if dvsPerDC < 0 {
+		dvsPerDC = 0
+	}
+
+	cfg := Config{}
+
+	for d := 1; d <= dcs; d++ {
+		dcName := fmt.Sprintf("DC-%d", d)
+
+		// Build clusters
+		clusters := make([]ClusterConfig, 0, clustersPerDC)
+		for c := 1; c <= clustersPerDC; c++ {
+			hostPrefix := fmt.Sprintf("ESXi-%d-%d-", d, c) // e.g., ESXi-1-2-01
+
+			// Distribute VMs across 3 resource pools: Web, App, DB
+			rpNames := []struct{ name, prefix string }{
+				{"RP-Web", "vm-web"},
+				{"RP-App", "vm-app"},
+				{"RP-DB", "vm-db"},
+			}
+			rps := make([]ResourcePoolConfig, 0, len(rpNames))
+			remaining := vmsPerCluster
+			for ri, rp := range rpNames {
+				var count int
+				if ri == len(rpNames)-1 {
+					count = remaining // last pool gets remainder
+				} else {
+					count = vmsPerCluster / len(rpNames)
+					remaining -= count
+				}
+				if count > 0 {
+					rps = append(rps, ResourcePoolConfig{
+						Name:     rp.name,
+						VMCount:  count,
+						VMPrefix: fmt.Sprintf("%s-d%dc%d", rp.prefix, d, c),
+					})
+				}
+			}
+
+			clusters = append(clusters, ClusterConfig{
+				Name:          fmt.Sprintf("Cluster-%d", c),
+				HostCount:     hostsPerCluster,
+				HostPrefix:    hostPrefix,
+				ResourcePools: rps,
+			})
+		}
+
+		// Build datastores
+		datastores := make([]DatastoreConfig, 0, dsPerDC)
+		for ds := 1; ds <= dsPerDC; ds++ {
+			datastores = append(datastores, DatastoreConfig{
+				Name:       fmt.Sprintf("SAN-%d-%02d", d, ds),
+				Type:       "SAN",
+				CapacityGB: 4096,
+			})
+		}
+
+		// Build DVSwitches
+		dvSwitches := make([]DVSwitchConfig, 0, dvsPerDC)
+		for dv := 1; dv <= dvsPerDC; dv++ {
+			dvSwitches = append(dvSwitches, DVSwitchConfig{
+				Name: fmt.Sprintf("DVS-%d-%d", d, dv),
+				Portgroups: []string{
+					fmt.Sprintf("DVPG-Prod-%d-%d", d, dv),
+					fmt.Sprintf("DVPG-Mgmt-%d-%d", d, dv),
+					fmt.Sprintf("DVPG-vMotion-%d-%d", d, dv),
+				},
+			})
+		}
+
+		cfg.Datacenters = append(cfg.Datacenters, DatacenterConfig{
+			Name:       dcName,
+			Clusters:   clusters,
+			Datastores: datastores,
+			DVSwitches: dvSwitches,
+		})
+	}
+
+	return cfg
+}
+
 func dcUSEast() DatacenterConfig {
 	return DatacenterConfig{
 		Name: "DC-US-East",
