@@ -69,6 +69,19 @@ func (add *addHost) Run(task *Task) (types.AnyType, types.BaseMethodFault) {
 	cr.Host = append(cr.Host, host.Reference())
 	addComputeResource(cr.Summary.GetComputeResourceSummary(), host)
 
+	// Set cluster-level summary fields after adding host
+	if clusterSummary, ok := cr.Summary.(*types.ClusterComputeResourceSummary); ok {
+		clusterSummary.CurrentFailoverLevel = 1
+		s := cr.Summary.GetComputeResourceSummary()
+		if clusterSummary.UsageSummary == nil {
+			clusterSummary.UsageSummary = &types.ClusterUsageSummary{}
+		}
+		clusterSummary.UsageSummary.TotalCpuCapacityMhz = s.TotalCpu
+		clusterSummary.UsageSummary.TotalMemCapacityMB = int32(s.TotalMemory / (1024 * 1024))
+		clusterSummary.UsageSummary.CpuDemandMhz = int32(float64(s.TotalCpu) * 0.55)
+		clusterSummary.UsageSummary.MemDemandMB = int32(float64(s.TotalMemory/(1024*1024)) * 0.60)
+	}
+
 	if cr.vsanIsEnabled() {
 		cr.addStorageHost(task.ctx, host.Self)
 	}
@@ -102,6 +115,9 @@ func (c *ClusterComputeResource) update(_ *Context, cfg *types.ClusterConfigInfo
 		if val := cspec.DasConfig.DefaultVmSettings; val != nil {
 			cfg.DasConfig.DefaultVmSettings = val
 		}
+		if val := cspec.DasConfig.FailoverLevel; val != 0 {
+			cfg.DasConfig.FailoverLevel = val
+		}
 	}
 	if cspec.DrsConfig != nil {
 		if val := cspec.DrsConfig.Enabled; val != nil {
@@ -109,6 +125,12 @@ func (c *ClusterComputeResource) update(_ *Context, cfg *types.ClusterConfigInfo
 		}
 		if val := cspec.DrsConfig.DefaultVmBehavior; val != "" {
 			cfg.DrsConfig.DefaultVmBehavior = val
+		}
+		if val := cspec.DrsConfig.VmotionRate; val != 0 {
+			cfg.DrsConfig.VmotionRate = val
+		}
+		if val := cspec.DrsConfig.EnableVmBehaviorOverrides; val != nil {
+			cfg.DrsConfig.EnableVmBehaviorOverrides = val
 		}
 	}
 
@@ -121,14 +143,79 @@ func (c *ClusterComputeResource) update(_ *Context, cfg *types.ClusterConfigInfo
 // syncConfiguration copies DasConfig and DrsConfig from ConfigurationEx
 // (ClusterConfigInfoEx) to the deprecated Configuration (ClusterConfigInfo)
 // field. The Java poller reads the deprecated "configuration" property.
+//
+// It also ensures that all *bool, int32 (omitempty), and pointer fields that
+// the Java poller auto-unboxes are non-nil/non-zero. When the Go XML marshaler
+// encounters a nil *bool or a zero int32 tagged with omitempty, it omits the
+// XML element entirely. The Java JAX-WS client then receives null for the
+// boxed type, and auto-unboxing (e.g. Boolean → boolean) causes an NPE.
+//
+// Fields guarded here (from VMwareClusterDataCollector.java):
+//
+//	Line 316: drsConfig.isEnabled()                        → *bool
+//	Line 317: drsConfig.getVmotionRate()                   → int32 omitempty
+//	Line 318: drsConfig.isEnableVmBehaviorOverrides()      → *bool
+//	Line 319: drsConfig.getDefaultVmBehavior().toString()  → string omitempty
+//	Line 323: dasConfig.isEnabled()                        → *bool
+//	Line 324: dasConfig.isAdmissionControlEnabled()        → *bool
+//	Line 325: dasConfig.getFailoverLevel()                 → int32 omitempty
+//	Line 326: dasConfig.getDefaultVmSettings().getIsolationResponse()   → pointer chain
+//	Line 327: dasConfig.getDefaultVmSettings().getRestartPriority()     → pointer chain
+//	Line 328: dasConfig.getDefaultVmSettings().getRestartPriorityTimeout() → pointer chain
 func (c *ClusterComputeResource) syncConfiguration() {
-	if cfg, ok := c.ConfigurationEx.(*types.ClusterConfigInfoEx); ok {
-		c.Configuration.DasConfig = cfg.DasConfig
-		c.Configuration.DrsConfig = cfg.DrsConfig
-		c.Configuration.DasVmConfig = cfg.DasVmConfig
-		c.Configuration.DrsVmConfig = cfg.DrsVmConfig
-		c.Configuration.Rule = cfg.Rule
+	cfg, ok := c.ConfigurationEx.(*types.ClusterConfigInfoEx)
+	if !ok {
+		return
 	}
+
+	// --- DRS config defaults ---
+	if cfg.DrsConfig.Enabled == nil {
+		cfg.DrsConfig.Enabled = types.NewBool(true)
+	}
+	if cfg.DrsConfig.VmotionRate == 0 {
+		cfg.DrsConfig.VmotionRate = 3
+	}
+	if cfg.DrsConfig.EnableVmBehaviorOverrides == nil {
+		cfg.DrsConfig.EnableVmBehaviorOverrides = types.NewBool(true)
+	}
+	if cfg.DrsConfig.DefaultVmBehavior == "" {
+		cfg.DrsConfig.DefaultVmBehavior = types.DrsBehaviorFullyAutomated
+	}
+
+	// --- DAS (HA) config defaults ---
+	if cfg.DasConfig.Enabled == nil {
+		cfg.DasConfig.Enabled = types.NewBool(true)
+	}
+	if cfg.DasConfig.AdmissionControlEnabled == nil {
+		cfg.DasConfig.AdmissionControlEnabled = types.NewBool(true)
+	}
+	if cfg.DasConfig.FailoverLevel == 0 {
+		cfg.DasConfig.FailoverLevel = 1
+	}
+	if cfg.DasConfig.DefaultVmSettings == nil {
+		cfg.DasConfig.DefaultVmSettings = &types.ClusterDasVmSettings{
+			RestartPriority:        string(types.DasVmPriorityMedium),
+			RestartPriorityTimeout: 120,
+			IsolationResponse:      string(types.ClusterDasVmSettingsIsolationResponseNone),
+		}
+	} else {
+		if cfg.DasConfig.DefaultVmSettings.RestartPriority == "" {
+			cfg.DasConfig.DefaultVmSettings.RestartPriority = string(types.DasVmPriorityMedium)
+		}
+		if cfg.DasConfig.DefaultVmSettings.RestartPriorityTimeout == 0 {
+			cfg.DasConfig.DefaultVmSettings.RestartPriorityTimeout = 120
+		}
+		if cfg.DasConfig.DefaultVmSettings.IsolationResponse == "" {
+			cfg.DasConfig.DefaultVmSettings.IsolationResponse = string(types.ClusterDasVmSettingsIsolationResponseNone)
+		}
+	}
+
+	// Copy to the deprecated Configuration field
+	c.Configuration.DasConfig = cfg.DasConfig
+	c.Configuration.DrsConfig = cfg.DrsConfig
+	c.Configuration.DasVmConfig = cfg.DasVmConfig
+	c.Configuration.DrsVmConfig = cfg.DrsVmConfig
+	c.Configuration.Rule = cfg.Rule
 }
 
 func (c *ClusterComputeResource) updateRules(_ *Context, cfg *types.ClusterConfigInfoEx, cspec *types.ClusterConfigSpecEx) types.BaseMethodFault {
@@ -697,10 +784,10 @@ func (c *ClusterComputeResource) GetResourceUsage(ctx *Context, req *types.GetRe
 
 	summary := c.Summary.GetComputeResourceSummary()
 
-	// CPU: TotalCpu is per-host cpuMhz accumulated, multiply by cores for true capacity
-	cpuCapacity := summary.TotalCpu * int32(summary.NumCpuCores)
-	if cpuCapacity == 0 && summary.NumHosts > 0 {
-		cpuCapacity = summary.TotalCpu // fallback
+	// CPU: TotalCpu is already the aggregate MHz (cpuMhz * numCores per host, summed).
+	cpuCapacity := summary.TotalCpu
+	if cpuCapacity == 0 {
+		cpuCapacity = 1 // guard against division by zero downstream
 	}
 	// ~55% CPU utilization
 	cpuUsed := int32(float64(cpuCapacity) * 0.55)

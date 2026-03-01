@@ -184,6 +184,7 @@ func (s *Service) call(ctx *Context, method *Method) soap.HasFault {
 	if ctx.Map.Handler != nil {
 		h, fault := ctx.Map.Handler(ctx, method)
 		if fault != nil {
+			log.Printf("[SOAP] %s on %s → FAULT (handler): %v", method.Name, method.This, fault)
 			return &serverFaultBody{Reason: Fault("", fault)}
 		}
 		if h != nil {
@@ -197,9 +198,22 @@ func (s *Service) call(ctx *Context, method *Method) soap.HasFault {
 			"Login", "LoginByToken", "LoginExtensionByCertificate", "CloneSession", // SessionManager
 			"RetrieveServiceContent", "RetrieveInternalContent", "PbmRetrieveServiceContent", // ServiceContent
 			"Fetch", "RetrieveProperties", "RetrievePropertiesEx", // PropertyCollector
+			"ContinueRetrievePropertiesEx", "CancelRetrievePropertiesEx", // Pagination
+			"CreateContainerView", "DestroyView", // ContainerView (used by Java poller findAllObjects)
+			"CreatePropertyCollector", "DestroyPropertyCollector", // PropertyCollector lifecycle
+			"CreateFilter", "DestroyPropertyFilter", // PropertyFilter
+			"WaitForUpdatesEx", "CancelWaitForUpdatesEx", // Property updates
+			"QueryPerf", "QueryPerfCounter", "QueryAvailablePerfMetric", // Performance
+			"GetResourceUsage",           // Cluster resource usage
+			"QueryHostConnectionInfo",    // Host connection info
+			"CurrentTime",                // Session keepalive
+			"Logout", "TerminateSession", // Session cleanup
 			"List",                   // lookup service
 			"GetTrustedCertificates": // ssoadmin
-			// ok for now, TODO: authz
+			// Demo simulator: allow these methods without authentication.
+			// The Java poller (JAX-WS) may not always send back the
+			// vmware_soap_session cookie despite SESSION_MAINTAIN_PROPERTY=true,
+			// especially through connection pools and concurrent threads.
 		default:
 			fault := &types.NotAuthenticated{
 				NoPermission: types.NoPermission{
@@ -207,6 +221,7 @@ func (s *Service) call(ctx *Context, method *Method) soap.HasFault {
 					PrivilegeId: "System.View",
 				},
 			}
+			log.Printf("[SOAP] %s on %s → FAULT (not authenticated)", method.Name, method.This)
 			return &serverFaultBody{Reason: Fault("", fault)}
 		}
 	} else {
@@ -220,6 +235,7 @@ func (s *Service) call(ctx *Context, method *Method) soap.HasFault {
 		msg := fmt.Sprintf("managed object not found: %s", method.This)
 		log.Print(msg)
 		fault := &types.ManagedObjectNotFound{Obj: method.This}
+		log.Printf("[SOAP] %s on %s → FAULT (not found)", method.Name, method.This)
 		return &serverFaultBody{Reason: Fault(msg, fault)}
 	}
 
@@ -236,6 +252,7 @@ func (s *Service) call(ctx *Context, method *Method) soap.HasFault {
 		msg := fmt.Sprintf("%s does not implement: %s", method.This, method.Name)
 		log.Print(msg)
 		fault := &types.MethodNotFound{Receiver: method.This, Method: method.Name}
+		log.Printf("[SOAP] %s on %s → FAULT (not implemented)", method.Name, method.This)
 		return &serverFaultBody{Reason: Fault(msg, fault)}
 	}
 
@@ -244,6 +261,7 @@ func (s *Service) call(ctx *Context, method *Method) soap.HasFault {
 			if name == dm {
 				msg := fmt.Sprintf("%s method is disabled: %s", method.This, method.Name)
 				fault := &types.MethodDisabled{}
+				log.Printf("[SOAP] %s on %s → FAULT (disabled)", method.Name, method.This)
 				return &serverFaultBody{Reason: Fault(msg, fault)}
 			}
 		}
@@ -275,7 +293,13 @@ func (s *Service) call(ctx *Context, method *Method) soap.HasFault {
 		res = m.Call(args)
 	})
 
-	return res[0].Interface().(soap.HasFault)
+	result := res[0].Interface().(soap.HasFault)
+	if f := result.Fault(); f != nil {
+		log.Printf("[SOAP] %s on %s → FAULT: %s", method.Name, method.This, f.String)
+	} else {
+		log.Printf("[SOAP] %s on %s → OK", method.Name, method.This)
+	}
+	return result
 }
 
 // internalSession is the session for use by the in-memory client (Service.RoundTrip)
