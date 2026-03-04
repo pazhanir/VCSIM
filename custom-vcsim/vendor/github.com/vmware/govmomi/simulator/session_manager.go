@@ -96,17 +96,6 @@ func (m *SessionManager) findSession(user string) (Session, bool) {
 	return Session{}, false
 }
 
-// anySession returns the first active session, if any.
-// Used as a fallback when no cookie is found in the request.
-func (m *SessionManager) anySession() (Session, bool) {
-	sessionMutex.Lock()
-	defer sessionMutex.Unlock()
-	for _, session := range m.sessions {
-		return session, true
-	}
-	return Session{}, false
-}
-
 func (m *SessionManager) delSession(id string) {
 	sessionMutex.Lock()
 	defer sessionMutex.Unlock()
@@ -142,7 +131,7 @@ func (s *SessionManager) TLSCert() string {
 func (s *SessionManager) Login(ctx *Context, req *types.Login) soap.HasFault {
 	body := new(methods.LoginBody)
 
-	if s.Authenticate(*ctx.svc.Listen, req) {
+	if ctx.Session == nil && s.Authenticate(*ctx.svc.Listen, req) {
 		body.Res = &types.LoginResponse{
 			Returnval: createSession(ctx, req.UserName, req.Locale),
 		}
@@ -364,16 +353,7 @@ func (c *Context) mapSession() {
 		cookie = HTTPCookie
 	}
 
-	cookieVal := cookie(c)
-	if val, ok := c.sessionManager().getSession(cookieVal); ok {
-		c.SetSession(val, false)
-		return
-	}
-
-	// Fallback: if no cookie matched, try to find any active session.
-	// This handles Java pollers (JAX-WS) that may not reliably send back
-	// the vmware_soap_session cookie through connection pools.
-	if val, ok := c.sessionManager().anySession(); ok {
+	if val, ok := c.sessionManager().getSession(cookie(c)); ok {
 		c.SetSession(val, false)
 	}
 }

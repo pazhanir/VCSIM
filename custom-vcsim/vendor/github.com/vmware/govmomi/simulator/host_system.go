@@ -444,17 +444,12 @@ func hostParent(ctx *Context, host *mo.HostSystem) *mo.ComputeResource {
 }
 
 func addComputeResource(s *types.ComputeResourceSummary, h *HostSystem) {
-	// TotalCpu is "Aggregated CPU resources of all hosts, in MHz" (API spec).
-	// This means total aggregate MHz = cpuMhz_per_core * numCpuCores per host.
-	hostTotalMhz := h.Summary.Hardware.CpuMhz * int32(h.Summary.Hardware.NumCpuCores)
-	s.TotalCpu += hostTotalMhz
+	s.TotalCpu += h.Summary.Hardware.CpuMhz
 	s.TotalMemory += h.Summary.Hardware.MemorySize
 	s.NumCpuCores += h.Summary.Hardware.NumCpuCores
 	s.NumCpuThreads += h.Summary.Hardware.NumCpuThreads
-	// EffectiveCpu is "Effective CPU resources (in MHz)" — same aggregate for connected hosts.
-	s.EffectiveCpu += hostTotalMhz
-	// EffectiveMemory is "Effective memory resources (in MB)" per API spec.
-	s.EffectiveMemory += h.Summary.Hardware.MemorySize / (1024 * 1024)
+	s.EffectiveCpu += h.Summary.Hardware.CpuMhz
+	s.EffectiveMemory += h.Summary.Hardware.MemorySize
 	s.NumHosts++
 	s.NumEffectiveHosts++
 	s.OverallStatus = types.ManagedEntityStatusGreen

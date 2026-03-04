@@ -486,7 +486,6 @@ func (b *Builder) buildCluster(ctx context.Context, dc *object.Datacenter, cfg C
 		DasConfig: &types.ClusterDasConfigInfo{
 			Enabled:                 types.NewBool(true),
 			AdmissionControlEnabled: types.NewBool(true),
-			FailoverLevel:           1,
 			DefaultVmSettings: &types.ClusterDasVmSettings{
 				RestartPriority:        string(types.ClusterDasVmSettingsRestartPriorityMedium),
 				RestartPriorityTimeout: 600,
@@ -501,10 +500,8 @@ func (b *Builder) buildCluster(ctx context.Context, dc *object.Datacenter, cfg C
 			},
 		},
 		DrsConfig: &types.ClusterDrsConfigInfo{
-			Enabled:                   types.NewBool(true),
-			DefaultVmBehavior:         types.DrsBehaviorFullyAutomated,
-			VmotionRate:               3,
-			EnableVmBehaviorOverrides: types.NewBool(true),
+			Enabled:           types.NewBool(true),
+			DefaultVmBehavior: types.DrsBehaviorFullyAutomated,
 		},
 	}
 
