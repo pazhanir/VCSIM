@@ -78,14 +78,17 @@ func main() {
 	// Create the VPX model (vCenter simulator)
 	model := simulator.VPX()
 	if !*skipInventory {
-		// Start with minimal inventory — we'll build our own programmatically
-		model.Datacenter = 1
-		model.Cluster = 1
-		model.ClusterHost = 2 // hosts inside cluster
-		model.Host = 0        // standalone hosts
-		model.Machine = 2
-		model.Datastore = 1
-		model.Portgroup = 1
+		// Start with an EMPTY base model — we build our entire inventory
+		// programmatically. Seeding any default datacenter/cluster/hosts here
+		// leaves a stray "DC0" tree alongside the custom DC-1/DC-2 inventory,
+		// which clutters the Site24x7 topology map with a bogus root.
+		model.Datacenter = 0
+		model.Cluster = 0
+		model.ClusterHost = 0
+		model.Host = 0
+		model.Machine = 0
+		model.Datastore = 0
+		model.Portgroup = 0
 		model.Autostart = false
 	}
 
