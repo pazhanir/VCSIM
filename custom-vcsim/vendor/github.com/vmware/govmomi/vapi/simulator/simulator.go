@@ -407,10 +407,24 @@ func OK(w http.ResponseWriter, val ...any) {
 		return
 	}
 
+	value := val[0]
+
+	// Normalize a nil slice to an empty (non-nil) slice so list endpoints
+	// (e.g. tagging category/tag) marshal as {"value":[]} rather than
+	// {"value":null}. Real vCenter returns an empty array, and the Site24x7
+	// poller's JSON parser throws "value is not a JSONArray" on null.
+	if value != nil {
+		if rv := reflect.ValueOf(value); rv.Kind() == reflect.Slice && rv.IsNil() {
+			value = reflect.MakeSlice(rv.Type(), 0, 0).Interface()
+		}
+	}
+
+	// Note: no "omitempty" — vAPI list endpoints must emit "value":[] for an
+	// empty result (omitempty would drop the key and the empty slice entirely).
 	s := struct {
-		Value any `json:"value,omitempty"`
+		Value any `json:"value"`
 	}{
-		val[0],
+		value,
 	}
 
 	StatusOK(w, s)
