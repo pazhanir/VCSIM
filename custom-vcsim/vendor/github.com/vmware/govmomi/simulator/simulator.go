@@ -296,8 +296,6 @@ func (s *Service) call(ctx *Context, method *Method) soap.HasFault {
 	result := res[0].Interface().(soap.HasFault)
 	if f := result.Fault(); f != nil {
 		log.Printf("[SOAP] %s on %s → FAULT: %s", method.Name, method.This, f.String)
-	} else {
-		log.Printf("[SOAP] %s on %s → OK", method.Name, method.This)
 	}
 	return result
 }

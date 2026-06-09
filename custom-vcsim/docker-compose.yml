@@ -1,0 +1,31 @@
+services:
+  vcsim:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: custom-vcsim:latest
+    container_name: custom-vcsim
+    restart: unless-stopped
+    ports:
+      - "443:443"     # vSphere SOAP API (HTTPS) — Site24x7 poller connects here
+      - "8990:8990"   # Scenario controller REST API
+    command:
+      - "-l"
+      - ":443"
+      - "-scenario-addr"
+      - ":8990"
+      # Small-but-broad inventory: exercises full DC->Cluster->Host->VM->Datastore->Network
+      # topology for discovery/topology-map validation, light on a 2-CPU/3.7Gi VM.
+      # Totals: 2 DCs, 4 clusters, 12 hosts, 120 VMs, 6 datastores, 2 DVSwitches.
+      - "-dc"
+      - "2"
+      - "-cluster"
+      - "2"
+      - "-host"
+      - "3"
+      - "-vm"
+      - "30"
+      - "-ds"
+      - "3"
+      - "-dvs"
+      - "1"
