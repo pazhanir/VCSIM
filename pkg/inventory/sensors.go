@@ -73,10 +73,14 @@ func BuildSensors(p *HardwareProfile) []types.HostNumericSensorInfo {
 		s = append(s, greenSensor(fmt.Sprintf("Fan%d", i), "fan", 6000, "RPM"))
 	}
 
-	// power — dual redundant PSUs + total draw
-	s = append(s, greenSensor("Power Supply 1", "power", 1, "Watts"))
-	s = append(s, greenSensor("Power Supply 2", "power", 1, "Watts"))
-	s = append(s, greenSensor("System Power Consumption", "power", 350, "Watts"))
+	// power — dual redundant PSUs (realistic draw) + total draw.
+	// Use meaningful wattage readings; a "1 W" PSU reading can be filtered out
+	// as degenerate by downstream consumers.
+	s = append(s, greenSensor("Power Supply 1", "power", 210, "Watts"))
+	s = append(s, greenSensor("Power Supply 2", "power", 205, "Watts"))
+	s = append(s, greenSensor("System Power Consumption", "power", 415, "Watts"))
+	s = append(s, greenSensor("Power Supply 1 Status", "power", 0, ""))
+	s = append(s, greenSensor("Power Supply 2 Status", "power", 0, ""))
 
 	// voltage — common rails + per-socket Vcore
 	s = append(s, greenSensor("Planar 3.3V", "voltage", 3, "Volts"))
