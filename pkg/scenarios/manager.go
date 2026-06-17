@@ -14,6 +14,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/types"
 
+	"github.com/site24x7/vcsim-demo/pkg/correlate"
 	"github.com/site24x7/vcsim-demo/pkg/overrides"
 )
 
@@ -61,9 +62,15 @@ type Manager struct {
 	client   *govmomi.Client
 	finder   *find.Finder
 	registry *overrides.Registry
+	engine   *correlate.Engine // optional: correlated load propagation (Phase 3)
 	active   map[string]*ActiveScenario
 	defs     map[string]ScenarioDef
 }
+
+// SetEngine attaches the in-process correlation engine so CPU/memory scenarios
+// drive the shared load-state model (QuickStats + QueryPerf baselines) and
+// propagate contention to neighbour VMs, instead of only writing raw overrides.
+func (m *Manager) SetEngine(e *correlate.Engine) { m.engine = e }
 
 // NewManager creates a scenario manager connected to the vcsim instance.
 func NewManager(client *govmomi.Client, reg *overrides.Registry) *Manager {

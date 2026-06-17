@@ -27,7 +27,20 @@ func (m *Manager) activateCPUHostSaturation(ctx context.Context, req ActivateReq
 		// Set high CPU on host
 		m.setHighCPUMetrics(ref, cpuPercent, expiry)
 
-		// CASCADE: Find all VMs on this host and set high CPU ready
+		// Correlated path: drive the host's load through the engine so its
+		// QuickStats + QueryPerf baselines move together, the change rolls up
+		// to the cluster, and neighbour VMs get realistic CPU-ready contention
+		// (only because they share this now-saturated host).
+		if m.engine != nil {
+			victims := m.engine.SetHostLoad(ref, float64(cpuPercent)/100.0, -1)
+			for _, v := range victims {
+				m.setHighCPUReady(v.VM, int(v.CPUReadyPct*200), expiry) // %ready -> ms
+				m.setHighCPUMetrics(v.VM, 60+int(v.CPUReadyPct/5), expiry)
+			}
+			continue
+		}
+
+		// Legacy fallback (no engine): hand-cascade to VMs on the host.
 		vms, err := m.findVMsOnHost(ctx, target)
 		if err != nil {
 			// Non-fatal — host may have no VMs
@@ -134,7 +147,32 @@ func (m *Manager) activateMemHostExhaustion(ctx context.Context, req ActivateReq
 			ExpiresAt: expiry,
 		})
 
-		// CASCADE: All VMs on host get balloon and swap
+		// Correlated path: drive host memory through the engine. It rolls up to
+		// the cluster and computes per-VM reclaim (balloon then swap) sized by
+		// how far the host is over-subscribed — neighbours suffer only because
+		// host RAM (which can't be time-sliced) is exhausted.
+		if m.engine != nil {
+			victims := m.engine.SetHostLoad(ref, -1, float64(memPercent)/100.0)
+			for _, v := range victims {
+				if v.BalloonMB > 0 {
+					m.registry.SetMetric(v.VM, overrides.MetricOverride{
+						CounterID: 65, // mem.vmmemctl.average (balloon), KB
+						Values:    generateHighValues(v.BalloonMB*1024, 10),
+						ExpiresAt: expiry,
+					})
+				}
+				if v.SwappedMB > 0 {
+					m.registry.SetMetric(v.VM, overrides.MetricOverride{
+						CounterID: 35, // mem.swapped.average, KB
+						Values:    generateHighValues(v.SwappedMB*1024, 15),
+						ExpiresAt: expiry,
+					})
+				}
+			}
+			continue
+		}
+
+		// Legacy fallback (no engine): hand-cascade balloon/swap to all VMs.
 		vms, err := m.findVMsOnHost(ctx, target)
 		if err != nil {
 			continue

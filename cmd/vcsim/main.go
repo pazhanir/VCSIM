@@ -195,8 +195,11 @@ func main() {
 		log.Fatalf("Failed to connect scenario manager to vcsim: %v", err)
 	}
 
-	// Create scenario manager
+	// Create scenario manager and attach the in-process correlation engine so
+	// CPU/memory scenarios drive the shared load-state model and propagate
+	// contention to neighbour VMs (Phase 3).
 	mgr := scenarios.NewManager(client, reg)
+	mgr.SetEngine(correlate.NewEngine(model.Map()))
 
 	// Start scenario controller API on separate port
 	apiServer := api.NewServer(mgr, *scenarioAddr)
