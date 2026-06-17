@@ -16,6 +16,7 @@ import (
 
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/view"
+	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
 )
@@ -115,6 +116,42 @@ func main() {
 		}
 		fmt.Printf("%-18s cpuDemand=%-9d Σhost=%-9d cap=%-9d  %s\n",
 			cl.Name, demand, sumHost, cs.UsageSummary.TotalCpuCapacityMhz, status)
+	}
+
+	// Phase 2: verify QueryPerf cpu.usagemhz (counter 6, aggregate) matches the
+	// host QuickStats it was derived from.
+	fmt.Println("\n======== PERF cpu.usagemhz  vs  host QuickStats ========")
+	perfMgr := *c.ServiceContent.PerfManager
+	for _, h := range hosts {
+		req := &types.QueryPerf{
+			This: perfMgr,
+			QuerySpec: []types.PerfQuerySpec{{
+				Entity:     h.Reference(),
+				MaxSample:  1,
+				IntervalId: 20,
+				MetricId:   []types.PerfMetricId{{CounterId: 6, Instance: ""}},
+			}},
+		}
+		resp, err := methods.QueryPerf(ctx, c.Client, req)
+		if err != nil || resp == nil || len(resp.Returnval) == 0 {
+			continue
+		}
+		var perf int64 = -1
+		if em, ok := resp.Returnval[0].(*types.PerfEntityMetric); ok {
+			for _, s := range em.Value {
+				if ser, ok := s.(*types.PerfMetricIntSeries); ok && len(ser.Value) > 0 {
+					perf = ser.Value[0]
+				}
+			}
+		}
+		qs := int64(h.Summary.QuickStats.OverallCpuUsage)
+		status := "OK"
+		// perf has ±noise; allow 15% + small floor.
+		if qs > 0 && abs(perf-qs) > qs*15/100+50 {
+			status = "FAIL"
+			fails++
+		}
+		fmt.Printf("%-14s QuickStats=%-7d perf.usagemhz=%-7d  %s\n", h.Name, qs, perf, status)
 	}
 
 	fmt.Printf("\n%d invariant violation(s)\n", fails)

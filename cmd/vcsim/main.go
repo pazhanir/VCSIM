@@ -120,15 +120,19 @@ func main() {
 	// ensures QueryPerf returns those values instead of default data.
 	reg := overrides.Global()
 	simulator.MetricOverrideFunc = func(entity types.ManagedObjectReference, counterID int32, instance string) []int64 {
+		// 1. An active scenario override always wins.
 		metrics := reg.GetMetrics(entity)
 		for _, mo := range metrics {
 			if mo.CounterID == counterID && mo.Instance == instance {
 				return mo.Values
 			}
 		}
-		return nil
+		// 2. Otherwise, derive correlated baselines (CPU/mem usage) from the
+		//    entity's load state so live perf charts match QuickStats. Returns
+		//    nil for non-correlated counters -> falls through to stock data.
+		return correlate.BaselineMetric(entity, counterID, instance)
 	}
-	log.Println("[metrics] Override hook installed for PerformanceManager.QueryPerf")
+	log.Println("[metrics] Override hook installed (scenario -> correlated baseline -> stock)")
 
 	// Configure the listen address with TLS (real vCenter uses HTTPS)
 	model.Service.Listen = &url.URL{

@@ -36,6 +36,8 @@ type hostAgg struct {
 // It returns the per-host headroom snapshot (capacity minus demand) for use by
 // later contention/propagation phases.
 func Reconcile(m *simulator.Registry) map[types.ManagedObjectReference]LoadState {
+	Reset() // drop any prior snapshot before recomputing
+
 	hosts := map[types.ManagedObjectReference]*hostAgg{}
 
 	// Index hosts and seed their capacity from hardware.
@@ -72,6 +74,7 @@ func Reconcile(m *simulator.Registry) map[types.ManagedObjectReference]LoadState
 
 		ls := BaselineVMLoad(vm.Name, numCPU, coreMhz, memMB)
 		ApplyToVMQuickStats(&vm.Summary.QuickStats, ls)
+		SetState(vm.Self, ls) // record for QueryPerf baseline derivation
 
 		agg.vmCPUMhz += ls.CPUUsageMhz
 		agg.vmMemMB += ls.MemUsageMB
@@ -101,12 +104,15 @@ func Reconcile(m *simulator.Registry) map[types.ManagedObjectReference]LoadState
 		agg.host.Summary.QuickStats.OverallCpuUsage = int32(hostCPU)
 		agg.host.Summary.QuickStats.OverallMemoryUsage = int32(hostMem)
 
-		headroom[ref] = LoadState{
+		hostLS := LoadState{
 			CPUCapacityMhz: agg.capCPUMhz,
 			MemCapacityMB:  agg.capMemMB,
 			CPUUsageMhz:    hostCPU,
 			MemUsageMB:     hostMem,
+			MemActiveMB:    agg.vmActiveMB,
 		}
+		headroom[ref] = hostLS
+		SetState(ref, hostLS) // record for QueryPerf baseline derivation
 
 		// Accumulate toward the parent cluster (ComputeResource).
 		if agg.host.Parent != nil {
@@ -143,6 +149,8 @@ func Reconcile(m *simulator.Registry) map[types.ManagedObjectReference]LoadState
 		cs.UsageSummary.TotalMemCapacityMB = int32(ca.MemCapacityMB)
 		cs.UsageSummary.CpuDemandMhz = int32(ca.CPUUsageMhz)
 		cs.UsageSummary.MemDemandMB = int32(ca.MemUsageMB)
+
+		SetState(cc.Self, *ca) // record for QueryPerf baseline derivation
 	}
 
 	return headroom
